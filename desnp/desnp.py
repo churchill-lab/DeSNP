@@ -1,4 +1,16 @@
-#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import sys
+import logging
+import time
+import csv
+import gzip
+from builtins import range
+
+import pysam
+from datetime import datetime
+from desnp.probe import parse_probe
+
 
 """
 desnp.py
@@ -163,19 +175,6 @@ def exit(message='', parser=None):
 
 
 
-import sys
-import os
-import getopt
-import logging
-import time
-import csv
-import zipfile
-import gzip
-from builtins import range
-
-import pysam
-from datetime import datetime
-from desnp.probe import parse_probe
 
 # The first column in the Sanger VCF where there are strains
 VCF_STRAIN_START_COL = 9

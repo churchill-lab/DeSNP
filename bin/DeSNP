@@ -14,7 +14,7 @@ from desnp import __version__ as version
 
 __author__ = "Matthew Vincent mvincent@jax.org"
 
-ext_modules = ['pysam', 'numpy']
+ext_modules = ['pysam', 'numpy', 'chardet']
 failed_modules = []
 
 logo_text = """
@@ -44,8 +44,9 @@ if len(failed_modules) > 0:
 class DeSNPApp(object):
     """
     The most commonly used commands are:
-       snp       DeSNP files
-       summarize Summarize
+       process       DeSNP files
+       strains       List strains
+       summarize     Summarize
 
     Other commands:
        logo      Show logo
@@ -95,13 +96,16 @@ class DeSNPApp(object):
         getattr(self, args.command)()
 
     def process(self):
-        desnp.desnp_commands.command_process(sys.argv[2:], self.script_name + ' process')
+        desnp.desnp_commands.command_process(sys.argv[2:],
+                                             self.script_name + ' process')
 
     def strains(self):
-        desnp.desnp_commands.command_strains(sys.argv[2:], self.script_name + ' strains')
+        desnp.desnp_commands.command_strains(sys.argv[2:],
+                                             self.script_name + ' strains')
 
     def summarize(self):
-        desnp.desnp_commands.command_summarize(sys.argv[2:], self.script_name + ' summarize')
+        desnp.desnp_commands.command_summarize(sys.argv[2:],
+                                               self.script_name + ' summarize')
 
     def logo(self):
         print(logo_text)

@@ -1,15 +1,18 @@
-#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 """
 summarize.py
 February 10, 2012
 Dave Walton - dave.walton@jax.org
 
+August 15, 2019
+Matthew Vincent - matt.vincent@jax.org
+
 This program is intended for summarizing probe data so that it can
 be passed on to the GEM database and application for mining and more
 advanced analysis.
 
-  Copyright (c) 2012 The Jackson Laboratory
+  Copyright (c) 2012 The Jackson Churchill Lab
   
   This is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -39,13 +42,8 @@ from datetime import datetime
 
 from desnp import medpolish as mp
 from desnp.probe import ProbeSet
-from desnp.probe import parseProbesFromLine
+from desnp.probe import parse_probe
 
-
-
-
-__author__="dave.walton@jax.org"
-__date__="$Feb 10, 2012 08:00:00 AM$"
 
 
 class SummarizationError(Exception):
@@ -452,7 +450,7 @@ class Summary(object):
                 probe.addProbeSetId(line[psi_col])
             else:
                 # parseProbesFromLine can result in multiple instances of the same probe...
-                tmp_probes = parseProbesFromLine(line, header, probe_id_col_name=self.PROBE_ID_COL_NAME)
+                tmp_probes = parse_probe(line, header, probe_id_col_name=self.PROBE_ID_COL_NAME)
                 # ...for summarization this is irrelevant, just keep the first
                 probe = tmp_probes[0]
 
