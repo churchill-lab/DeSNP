@@ -75,7 +75,7 @@ How To Run
 
 * For the DeSNP step, you will need to provide the actual probes file you want to DeSNP, the set of strains for which you want the DeSNPing done and the gzipped snp file.  The output for this will include probes_filtered.tsv (your DeSNPed probes), probes_snps.tsv (the probes containing snps between strains), and your desnp.log file:
 
-      DeSNP -p probes.tsv -s Sanger.UNC.Combined.SNPs.txt.gz -t 129S1/SvImJ:CE/J
+      DeSNP process -p probes.tsv -s Sanger.UNC.Combined.SNPs.txt.gz -t 129S1/SvImJ:CE/J
 
 <!--
 * To summarize the results of the above command, group by gene and write messages to summarize.log you'll actually need a few additional parameters, as each file you are going to use, needs to be explicitely called out on the command-line.  In addition to the summarize.log file, the output is a statistics.tsv file:
