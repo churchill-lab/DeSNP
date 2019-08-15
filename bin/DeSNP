@@ -1,0 +1,112 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+
+import argparse
+import importlib
+import os
+import sys
+
+import desnp.desnp
+import desnp.desnp_commands
+
+from desnp import __version__ as version
+
+__author__ = "Matthew Vincent mvincent@jax.org"
+
+ext_modules = ['pysam', 'numpy']
+failed_modules = []
+
+logo_text = """
+
+
+  _____        _____ _   _ _____  
+ |  __ \      / ____| \ | |  __ \ 
+ | |  | | ___| (___ |  \| | |__) |
+ | |  | |/ _ \\___ \| . ` |  ___/ 
+ | |__| |  __/____) | |\  | |     
+ |_____/ \___|_____/|_| \_|_|     v""" + version + """
+ 
+"""
+
+for dependency in ext_modules:
+    try:
+        importlib.import_module(dependency)
+    except ImportError as ie:
+        failed_modules.append(dependency)
+
+if len(failed_modules) > 0:
+    sys.stderr.write('Error: The following modules need to be installed: ')
+    sys.stderr.write('\t' + ', '.join(failed_modules))
+    sys.exit(1)
+
+
+class DeSNPApp(object):
+    """
+    The most commonly used commands are:
+       snp       DeSNP files
+       summarize Summarize
+
+    Other commands:
+       logo      Show logo
+
+    """
+
+    def __init__(self):
+        self.script_name = os.path.basename(__file__)
+        parser = argparse.ArgumentParser(add_help=False)
+
+        def print_message(message):
+            sys.stderr.write(logo_text)
+            sys.stderr.write('\n')
+            sys.stderr.write(message)
+            sys.stderr.write('\n')
+            sys.stderr.write(DeSNPApp.__doc__)
+            sys.stderr.write('\n')
+            sys.exit(1)
+
+        parser.error = print_message
+
+        parser.add_argument('command', nargs='?', help='Subcommand to run')
+        parser.add_argument("-h", "--help", dest="help", action="store_true")
+        parser.add_argument("-v", "--version", dest="version", action="store_true")
+
+        if len(sys.argv) == 1:
+            desnp.desnp.exit("", parser)
+
+        # parse_args defaults to [1:] for args, but need to exclude
+        # the rest of the args too, or validation will fail
+        args = parser.parse_args(sys.argv[1:2])
+
+        if args.version:
+            print(version)
+            sys.exit(1)
+
+        if args.help:
+            desnp.desnp.exit("", parser)
+
+        if not args.command:
+            desnp.desnp.exit("", parser)
+
+        if not hasattr(self, args.command):
+            desnp.desnp.exit("Unrecognized command: {}".format(args.command), parser)
+
+        # use dispatch pattern to invoke method with same name
+        getattr(self, args.command)()
+
+    def process(self):
+        desnp.desnp_commands.command_process(sys.argv[2:], self.script_name + ' process')
+
+    def strains(self):
+        desnp.desnp_commands.command_strains(sys.argv[2:], self.script_name + ' strains')
+
+    def summarize(self):
+        desnp.desnp_commands.command_summarize(sys.argv[2:], self.script_name + ' summarize')
+
+    def logo(self):
+        print(logo_text)
+
+
+if __name__ == '__main__':
+    DeSNPApp()
+

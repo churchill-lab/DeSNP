@@ -1,12 +1,13 @@
 DeSNP Pipeline Tools
 ====================================
     Created: January 9, 2012
-    Last Modified: March 24, 2014
+    Last Modified: August 14, 2019
     Dave Walton - The Jackson Laboratory
+    Matthew Vincent - The Jackson Laboratory
 
 -------------
 
-    Copyright (c) 2012 The Jackson Laboratory
+    Copyright (c) 2019 The Jackson Laboratory
   
     This is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
