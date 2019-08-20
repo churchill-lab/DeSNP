@@ -14,6 +14,17 @@ class DeSNPError(Exception):
         super(DeSNPError, self).__init__(self.msg)
 
 
+class DeSNPSummarizationError(Exception):
+    """
+    Summarization error
+    """
+    def __init__(self, msg=None):
+        self.msg = msg
+        super(DeSNPSummarizationError, self).__init__(self.msg)
+
+
+
+
 class KeyboardInterruptError(Exception):
     """
     Keyboard Interrupt errors

@@ -5,6 +5,8 @@ import sys
 
 from . import desnp
 from . import exceptions
+from . import summarize
+
 
 LOG = desnp.get_logger()
 
@@ -86,12 +88,14 @@ def command_process(raw_args, prog=None):
     parser.add_argument("-c", "--comma", dest="comma", action='store_true')
     parser.add_argument("--flag", dest="flag", action='store_true')
     parser.add_argument("-i", "--idcol", dest="idcol", metavar="ID_Column")
-    parser.add_argument("-o", "--out", dest="output", metavar="Output_File", default="probes.out")
+    parser.add_argument("-o", "--out", dest="output", metavar="Output_File",
+                        default="probes.out")
     parser.add_argument("--vcf", dest="vcf", action='store_true')
 
     # debugging and help
     parser.add_argument("-h", "--help", dest="help", action='store_true')
-    parser.add_argument("-d", "--debug", dest="debug", action="count", default=0)
+    parser.add_argument("-d", "--debug", dest="debug", action="count",
+                        default=0)
 
     args = parser.parse_args(raw_args)
 
@@ -99,6 +103,8 @@ def command_process(raw_args, prog=None):
 
     if args.help:
         desnp.exit("", parser)
+
+    print(args)
 
     try:
         if not args.snps:
@@ -110,10 +116,10 @@ def command_process(raw_args, prog=None):
         if not args.probes:
             desnp.exit("No probes file was specified.", parser)
 
-        delim = ',' if args.comma else '\t'
+        delimiter = ',' if args.comma else '\t'
 
         desnp.perform_desnp(args.probes, args.snps, args.strains, args.output,
-                            delim, args.vcf, args.idcol, args.flag)
+                            delimiter, args.vcf, args.idcol, args.flag)
 
     except KeyboardInterrupt as ki:
         LOG.warn(ki)
@@ -128,7 +134,7 @@ def command_strains(raw_args, prog=None):
     """
     DeSNP
 
-    Usage: DeSNP strains <snps.gz>
+    Usage: DeSNP strains <snpsfile.gz>
 
     Required Parameters:
 
@@ -179,7 +185,8 @@ def command_strains(raw_args, prog=None):
 
     # debugging and help
     parser.add_argument("-h", "--help", dest="help", action='store_true')
-    parser.add_argument("-d", "--debug", dest="debug", action="count", default=0)
+    parser.add_argument("-d", "--debug", dest="debug", action="count",
+                        default=0)
 
     args = parser.parse_args(raw_args)
 
@@ -195,7 +202,7 @@ def command_strains(raw_args, prog=None):
         strains = desnp.get_strains(args.snpsfile, args.vcf)
 
         if strains == 1:
-            print("Please provide a SNP File.")
+            LOG.error("Please provide a SNP File.")
             sys.exit(1)
         else:
             LOG.info("Valid strains available:")
@@ -216,27 +223,45 @@ def command_strains(raw_args, prog=None):
 
 def command_summarize(raw_args, prog=None):
     """
-    Create VCI file from VCF file(s)
-
-    Usage: g2gtools vcf2vci [-i <indel VCF file>]* -s <strain> -o <output file> [options]
+    Usage: DeSNP summarize -f <data.tsv> -p <probes.tsv> -s <samples.tsv>
 
     Required Parameters:
-        -i, --vcf <vcf_file>             VCF file name
-        -f, --fasta <Fasta File>         Fasta file matching VCF information
-        -s, --strain <Strain>            Name of strain (column in VCF file)
-        -o, --output <Output file>       VCI file name to create
+
+        -f, --data <data file>           The matix of intensity data
+
+        -p, --probes <probes file>       Input probes file, tab delimited.
+
+        -s, --samples <samples file>     The design file containing the samples
+
 
     Optional Parameters:
-        -p, --num-processes <number>     The number of processes to use, defaults to the number of cores
-        --diploid                        Create diploid VCI
-        --keep                           Keep track of VCF lines that could not be converted to VCI file
-        --pass                           Use only VCF lines that have a PASS for the filter value
-        --quality                        Filter on quality, FI=PASS
-        --no-bgzip                       DO NOT compress and index output
+
+        -c, --samplecol                  The column in the design file
+                                         containing the unique sample
+                                         identifier/name
+
+        -e, --extra                      Generate an additional json file
+                                         containing extra median polish results.
+                                         This option only works with gene
+                                         grouping, otherwise median polish not
+                                         run
+
+        -g, --group                      How to group probe sets, options are:
+                                         probe, gene (default)
+
+        -i, --idcol                      The name of the unique probe id column.
+                                         If not provided assumes 'id'
+
+        -o, --out                        The name of the output file the results
+                                         will go to
+
 
     Help Parameters:
+
         -h, --help                       Print the help and exit
-        -d, --debug                      Turn debugging mode on (list multiple times for more messages)
+
+        -d, --debug                      Turn debugging mode on (list multiple
+                                         times for more messages)
 
     """
 
@@ -249,32 +274,64 @@ def command_summarize(raw_args, prog=None):
         if message:
             sys.stderr.write(message)
         else:
-            sys.stderr.write(command_summarize.__doc__)
+            sys.stderr.write(command_process.__doc__)
         sys.stderr.write('\n')
         sys.exit(1)
 
     parser.error = print_message
 
     # required
-    parser.add_argument("-i", "--vcf", dest="vcf_files", metavar="vcf_file", action='append')
-    parser.add_argument("-f", "--fasta", dest="fasta_file", metavar="fasta_file")
-    parser.add_argument("-s", "--strain", dest="strain", metavar="strain")
-    parser.add_argument("-o", "--output", dest="output", metavar="VCI_File")
+    parser.add_argument("-f", "--data", dest="data", metavar="Data_File")
+    parser.add_argument("-p", "--probes", dest="probes", metavar="Probes_File")
+    parser.add_argument("-s", "--samples", dest="samples",
+                        metavar="Samples_File")
 
     # optional
-    parser.add_argument("-p", "--num-processes", type=int, dest="numprocesses", metavar="number_of_processes")
-    parser.add_argument("--diploid", dest="diploid", action='store_true')
-    parser.add_argument("--keep", dest="keep", action='store_true')
-    parser.add_argument("--pass", dest="passed", action='store_true')
-    parser.add_argument("--quality", dest="quality", action='store_true')
-    parser.add_argument("--no-bgzip", dest="nobgzip", action='store_false', default=True)
+    parser.add_argument("-c", "--samplecol", dest="samplecol",
+                        metavar="Sample_Column")
+    parser.add_argument("-e", "--extra", dest="extra", action='store_true')
+    parser.add_argument("-g", "--group", dest="group",
+                        choices=['probe', 'gene'], default="gene")
+    parser.add_argument("-i", "--idcol", dest="idcol", metavar="ID_Column")
+    parser.add_argument("-o", "--out", dest="output", metavar="Output_File",
+                        default="results.out")
 
     # debugging and help
     parser.add_argument("-h", "--help", dest="help", action='store_true')
-    parser.add_argument("-d", "--debug", dest="debug", action="count", default=0)
+    parser.add_argument("-d", "--debug", dest="debug", action="count",
+                        default=0)
 
     args = parser.parse_args(raw_args)
 
     desnp.configure_logging(args.debug)
 
+    if args.help:
+        desnp.exit("", parser)
 
+    try:
+        if not args.data:
+            desnp.exit("No data file was specified.", parser)
+
+        if not args.probes:
+            desnp.exit("No probes file was specified.", parser)
+
+        if not args.samples:
+            desnp.exit("No sample file was specified.", parser)
+
+        summary = summarize.Summary(args.data, args.probes, args.samples,
+                                    args.output, args.group, args.extra,
+                                    args.idcol, args.samplecol)
+
+        summary.process()
+        LOG.info("Summarization Completed Successfully")
+
+    except KeyboardInterrupt as ki:
+        LOG.warn(ki)
+    except exceptions.DeSNPError as ve:
+        desnp.exit(ve, parser)
+    except Exception as detail:
+        import traceback
+        print("-" * 60)
+        traceback.print_exc(file=sys.stdout)
+        LOG.info("Summarization did not run to completion " + str(detail))
+        sys.exit(1)

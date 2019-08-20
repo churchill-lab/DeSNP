@@ -77,11 +77,9 @@ How To Run
 
       DeSNP process -p probes.tsv -s Sanger.UNC.Combined.SNPs.txt.gz -t 129S1/SvImJ:CE/J
 
-<!--
-* To summarize the results of the above command, group by gene and write messages to summarize.log you'll actually need a few additional parameters, as each file you are going to use, needs to be explicitely called out on the command-line.  In addition to the summarize.log file, the output is a statistics.tsv file:
+* To summarize the results of the above command, group by gene and write messages to summarize.log you'll actually need a few additional parameters, as each file you are going to use, needs to be explicitly called out on the command-line.  In addition to the summarize.log file, the output is a statistics.tsv file:
 
-      summarize.py  -l -g gene -p probes_filtered.tsv -s samples.tsv -d data.tsv
-//-->
+      DeSNP summarize -g gene -p probes_filtered.tsv -s samples.tsv -f data.tsv
 
 Details about the expected formats for the probes.tsv, samples.tsv and data.tsv files can be found in the detailed sections below for DeSNP and Summarization.
 
@@ -120,41 +118,11 @@ The "strain/SNP" column of the probes_snp.tsv file is formated:
  where under each strain is the colon separated list of positions with a SNP for that strain, empty string where there are no SNPs for the strain.  In the example above strain1 has snps at position 0 and 1, strain2 at position 1; strain3 has no SNPs, and strainN has SNPs at positions 0 and 2.  If you want the absolute base of the snp you add the offset to the start base.  One caveat, if the probe is spread over multiple exons with gaps in between, the offset value is based on the probe sequence, so simply adding the offset to the first start position will not result in an accurate absolute position.
 
 
-<!--
- USAGE of `DeSNP` program:
- 
-    ./desnp.py [OPTIONS] -f <probes.txt> -g <snps.gz> -s <strains> (1st form)
-    ./desnp.py [OPTIONS] -z <probes.zip> -g <snps.gz> -s <strains> (2nd form)
- 
- OPTIONS:
- 
-    -c, --comma    the probe file is comma delimited
-    -f, --file     the probe file. This or -z are required
-    -g, --gzipsnp  the gzipped snp file.  This requires an associated .tbi tabix
-                   index file to be present in the same location
-    -h, --help     return this message
-    -i, --idcol    the name of the unique probe id column. if not provided assumes 'id'
-    -l, --log      same as verbose but sends diagnostics to desnp.log
-    -o, --out      the name of the output file the results will go to
-    -r, --returnstrains Can be used in conjunction with -g to get the list of 
-                   valid strains
-    -s, --strains  the list of strains to use, seperated by ':'
-    -t, --tab      the probe file is tab delimited, the default for -f and -z
-    -v, --verbose  show informational messages
-    --vcf          the gzipsnp file is in vcf format.  if this is not used the
-                   format is a format defined within the CGD, described below.
-    -z, --zip      a zip containing the probe file. This also assumes there is a
-                   file in the zip named probes.tsv, and the file is --tab
- 
-    *CGD SNP File format: Tab delimited file containing the following columns
-     SNPID, CHROM, POS, REF, ALT, Strain1 Allele, Strain1 confidence,
-     ... StrainN Allele, StrainN conf. 
-
 
 Details for Basic Data Summarization
 ------------------------------------
 
-This project also includes a program `summarize.py` that takes the output from the DeSNP program and does some basic grouping and summarization.  Currently the program can group by probe (no grouping) or gene (groups by MGI ID or Gene ID).  In all cases a *log2 transform* and *quantile normalization* are run against a matrix of intensity values.  As we've mentioned before the MooseDB zip file includes 3 files.  One of these files is `data.tsv`.  This includes the intensity values for the probes in `probes.tsv` and the strains in `samples.tsv`.  The program uses the `probes_filtered.tsv` file to select the set of probes for which summary statistics will be run.  If "gene" grouping is being done, an addidtional step is added where the probes are grouped, and then a *median polish* is run on these groups to get one intensity value for each group for each sample.  This program writes an output file named `statistics.tsv`.  This contains several columns of annotation information for each group and then appends the summarized intensity values to the row of data.  The column names for the summarized intensity values are taken from the `samples.tsv` files `sampleid` column. There is an optional "extra" file that can be generated that contains the full median polish results for each gene grouping.  This file is in JSON format and for each gene grouping contains these attributes: gene_id, overall, row, col, residuals. If you are trying to run this tool from data files other than the ones generated from MooseDB, the following are supported columns (you can substitute the word "MGI" with "Gene" if using another ID set):
+This project also includes a program `summarize` that takes the output from the DeSNP program and does some basic grouping and summarization.  Currently the program can group by probe (no grouping) or gene (groups by MGI ID or Gene ID).  In all cases a *log2 transform* and *quantile normalization* are run against a matrix of intensity values.  The data file should be in a `data.tsv`.  This includes the intensity values for the probes in `probes.tsv` and the strains in `samples.tsv`.  The program uses the `probes_filtered.tsv` file to select the set of probes for which summary statistics will be run.  If "gene" grouping is being done, an addidtional step is added where the probes are grouped, and then a *median polish* is run on these groups to get one intensity value for each group for each sample.  This program writes an output file named `statistics.tsv`.  This contains several columns of annotation information for each group and then appends the summarized intensity values to the row of data.  The column names for the summarized intensity values are taken from the `samples.tsv` files `sampleid` column. There is an optional "extra" file that can be generated that contains the full median polish results for each gene grouping.  This file is in JSON format and for each gene grouping contains these attributes: gene_id, overall, row, col, residuals. If you are trying to run this tool from data files other than the ones generated from MooseDB, the following are supported columns (you can substitute the word "MGI" with "Gene" if using another ID set):
 
     id, Probe ID, ProbeSet ID, MGI ID, MGI Symbol, MGI Name, Chr, Start, End, Strand
 
@@ -162,40 +130,14 @@ This project also includes a program `summarize.py` that takes the output from t
 
     id, Probe ID, ProbeSet ID, Location, MGI ID, MGI Symbol, MGI Name, Start, End, Strand
 
-    
-USAGE of `summarize.py` program:
-
-    ./summarize.py [OPTIONS] -z <moosedb.zip> (1st form)
-    ./summarize.py [OPTIONS] -p <probes.tsv> -s <samples.tsv> -d <data.tsv> (2nd form)
-    
-  OPTIONS:
-  
-    -g, --group    how to group probe sets, options are 'probe', 'gene'(default)
-    -e, --extra    generate an additional json file containing extra median polish results.
-                   this option only works with gene grouping, otherwise median polish not run.
-    -h, --help     return this message
-    -i, --idcol    the name of the unique probe id column.  if not provided assumes 'id'
-    -l, --log      same as verbose but sends diagnostics to desnp.log
-    -o, --out      the name of the output file the results will go to
-    -v, --verbose  show informational messages
-    -z, --zip      a zip containing the data, probe and sample annotations.
-                   This assumes there are the following files in the zip:
-                   probes.tsv or probes_filtered.tsv
-                   data.tsv
-                   samples.tsv
-     -p, --probe    The file containing the probes to be summarized (don't use with -z)
-     -d, --data     The matix of intensity data (don't use with -z)
-     -s, --sample   The design file containing the samples (don't use with -z)
-
 
 
 Examples
 ---------------
 
-The desnp_example.zip example data set has been provided for you to test the tool with.  
+The desnp_example directory has a data set has been provided for you to test the tool with.  
 
 To test the option where you pass it individual files instead of the zip file, just unzip the file and a probes.tsv, samples.tsv and data.tsv file will be found.  You can also use these example files as a guideline for the expected column naming and ordering the files should take if you generate your input files yourself.
 
 If you were running these in an HPC compute enviroment using torque/moab, we've included an example script "cluster_script_example.pbs" that you could use to submit to the custer.  Make sure you modify the script with the location where you have installed DeSNP, placed your SNP file, and name of your inputs.
 
-//-->    

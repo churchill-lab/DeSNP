@@ -11,8 +11,6 @@ This module handles import compatibility issues between Python 2 and
 Python 3.
 """
 
-import chardet
-
 import sys
 
 # -------
@@ -47,7 +45,6 @@ if is_py2:
     from Cookie import Morsel
     from StringIO import StringIO
     from collections import Callable, Mapping, MutableMapping, OrderedDict
-
 
     builtin_str = str
     bytes = str

@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
-import sys
 import logging
-import time
 import csv
 import gzip
+import sys
+import time
 from builtins import range
 
 import pysam
@@ -12,77 +12,8 @@ from datetime import datetime
 from desnp.probe import parse_probe
 
 
-"""
-desnp.py
-January 9, 2012
-Dave Walton - dave.walton@jax.org
-
-August 12, 2019
-Matt Vincent - matt.vincent@jax.org
-
-This program is part of a toolkit for manipulating expression data.
-This specific piece of code will take a file of probes, a set of strains,
-and a file of SNPS and filter out all the probes that have a SNP in
-one or more of the given strains against a reference sequence.  The
-C57BL6/J from NCBI Build 37 (mm9) is assumed to be the reference.
-
-Output will be written to standard out, and will be a file identical to the
-probes input file (either <probes.txt> below or the 'probes.tsv' file if using
-the -z option), except that the probes with snps will be either filtered out
-of the file, or (if the -k option is used below) the probes will still be in the
-file with a column added stating 'SNPS', in the case where snps are found in the
-probe.
-
-Usage:
-  ./desnp.py [OPTIONS] -f <probes.txt> -g <snps.gz> -s <strains> (1st form)
-  ./desnp.py [OPTIONS] -z <probes.zip> -g <snps.gz> -s <strains> (2nd form)
- 
-OPTIONS:
-    -c, --comma    the probe file is comma delimited
-    -f, --file     the probe file. This or -z are required
-    -g, --gzipsnp  the gzipped snp file.  This requires an associated .tbi tabix
-                   index file to be present in the same location
-    -h, --help     return this message
-    -i, --idcol    the name of the unique probe id column.  if not provided assumes 'id'
-    -l, --log      same as verbose but sends diagnostics to desnp.log
-    -o, --out      the name of the output file the results will go to
-    -r, --returnstrains Can be used in conjunction with -g to get the list of 
-                   valid strains
-    -s, --strains  the list of strains to use, seperated by ':'
-    -t, --tab      the probe file is tab delimited, the default for -f and -z
-    -v, --verbose  show informational messages
-    --vcf          the gzipsnp file is in vcf format.  if this is not used the
-                   format is a format defined within the CGD, described below.
-    -z, --zip      a zip containing the probe file. This also assumes there is a
-                   file in the zip named probes.tsv, and the file is --tab
-    
-  Copyright (c) 2019 The Churchill Lab - The Jackson Laboratory
-  
-  This is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
- 
-  This software is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
- 
-  You should have received a copy of the GNU General Public License
-  along with this software.  If not, see <http://www.gnu.org/licenses/>.
-
-"""
-
-from io import StringIO
-
-import logging
-import re
-import sys
-
 from . import exceptions
 from . import desnp_utils
-
-
 
 LOG = logging.getLogger('DeSNP')
 
@@ -174,8 +105,6 @@ def exit(message='', parser=None):
     sys.exit(1)
 
 
-
-
 # The first column in the Sanger VCF where there are strains
 VCF_STRAIN_START_COL = 9
 VCF_SNP_POS = 1
@@ -183,16 +112,16 @@ VCF_SNP_POS = 1
 # The first column in Dan's CGD SNP file where there are strains
 # mm9 is 5, mm10 is 4... we need to do something about this.
 CGD_STRAIN_START_COL = 5
-#CGD_STRAIN_START_COL = 4
+# CGD_STRAIN_START_COL = 4
 
 
 # Same problem here... mm10 different than mm9
 CGD_SNP_POS = 2
-#CGD_SNP_POS = 1
+# CGD_SNP_POS = 1
 CGD_REF_POS = 3
-#CGD_REF_POS = 2
+# CGD_REF_POS = 2
 CGD_ALT_POS = 4
-#CGD_ALT_POS = 3
+# CGD_ALT_POS = 3
 
 
 PROBE_FILE = "probes.tsv"
@@ -207,7 +136,8 @@ CHRS = [str(x) for x in range(1, 20)]
 CHRS.append('X')
 
 
-def _deSNP(probe, probe_snp_list, strains, probe_writer, rej_writer, vcf=False, flag=False):
+def _deSNP(probe, probe_snp_list, strains, probe_writer, rej_writer, vcf=False,
+           flag=False):
     """
     deSNP  Take a probes list of snps and sees if any are in the set of strains
 
@@ -261,14 +191,17 @@ def _deSNP(probe, probe_snp_list, strains, probe_writer, rej_writer, vcf=False, 
     for snp in probe_snp_list:
         tokens = snp.split("\t")
         snp_position = -1
+
         for strain in sorted(strains.keys(), key=str.lower):
             # This is the position in the lookup row where strain is located
             position = strains[strain]
+
             # column1 in the tokens list is "SNP Position"
             if vcf:
                 snp_position = tokens[VCF_SNP_POS]
             else:
                 snp_position = tokens[CGD_SNP_POS]
+
             ref = ""
             alt = ""
             confidence = ""
@@ -278,19 +211,23 @@ def _deSNP(probe, probe_snp_list, strains, probe_writer, rej_writer, vcf=False, 
             else:
                 # reference call
                 ref = tokens[CGD_REF_POS]
+
                 # alternate call
                 alt = tokens[CGD_ALT_POS]
-                #  Adjust the position based on start of strains in row
+
+                # adjust the position based on start of strains in row
                 position = ((position) * 2) + CGD_STRAIN_START_COL
                 confidence = tokens[position + 1]
 
             value = tokens[position]
+
             #  if in the case of VCF
             if ((vcf and (value.startswith("1/1") or value.startswith("0/1") or
                 value.startswith("1/0"))) or
                 (value == alt and (confidence == "1" or confidence == "2"))):
                 has_snp = True
                 corrected_position = 0
+
                 if (len(locations) > 1):
 
                     corrected_position = int(snp_position)
@@ -308,23 +245,16 @@ def _deSNP(probe, probe_snp_list, strains, probe_writer, rej_writer, vcf=False, 
                             break
                 else:
                     #  TODO:  This shouldn't work!!!
-                    corrected_position = int(snp_position) - int(locations[0]["start"])
-                # If no snp found yet, replace '0' with single letter abbrev
+                    corrected_position = \
+                        int(snp_position) - int(locations[0]["start"])
+
                 if snpmap[strain] == '':
+                    # if no snp found yet, replace '0' with single letter abbrev
                     snpmap[strain] = str(corrected_position)
-                    #  This is a debug version of above line that writes with strain name
-                    #snpmap[strain] = strain + "-" + str(corrected_position)
-                # If snp already found here, append single letter abbrev
                 else:
-                    snpmap[strain] = snpmap[strain] + ":" + str(corrected_position)
-                    #  This is a debug version of above line that writes with strain name
-                    #snpmap[strain] = snpmap[strain] + ":" + strain + "-" + str(corrected_position)
-            #else:
-            #    if snpmap[strain] == '':
-            #        snpmap[strain] == '#'
-            #
-            #    else:
-            #        snpmap[strain] = snpmap[strain] + ":" + '#'
+                    # if snp already found here, append single letter abbrev
+                    snpmap[strain] = '{}:{}'.format(snpmap[strain],
+                                                    str(corrected_position))
 
     if has_snp:
         # The "strain/SNP" column of the reject file is formated:
@@ -337,21 +267,26 @@ def _deSNP(probe, probe_snp_list, strains, probe_writer, rej_writer, vcf=False, 
         # Concatenate snp positions
         snpstring = ""
         first = True
+
         for strain in sorted(snpmap.keys(), key=str.lower):
             if first:
                 snpstring = str(snpmap[strain])
                 first = False
             else:
                 snpstring = snpstring + ";" + str(snpmap[strain])
+
         probe_list = probe.asList()
         probe_list.append(snpstring)
+
         # write to rejected variance file
         rej_writer.writerow(probe_list)
     else:
         # write to probe file
         out_list = probe.asList()
+
         if flag:
             out_list.append("")
+
         probe_writer.writerow(out_list)
 
     return (1, 0) if has_snp else (0, 1)
@@ -383,12 +318,14 @@ def get_SNP_list(probes, tabix_file):
     covered by this probe.  If no snps are found "None" is returned.
     """
     regions = []
+
     for probe in probes:
         if probe.probe_start > -1:
             tmp_regions = tabix_file.fetch(reference=probe.chromosome,
                                            start=probe.probe_start,
                                            end=probe.probe_end)
             regions += tmp_regions
+
     return regions
 
 
@@ -426,8 +363,8 @@ def get_samples_cgd(snp_file_name):
     """
     get_samples_cgd()  Gets list of valid sample/strains from CGD strain file
 
-    Takes the name of the gzipped cgd strain file as a parameter.  Assumes that in
-    the CGD Strain format, the first line is a header.
+    Takes the name of the gzipped cgd strain file as a parameter.  Assumes that
+    in the CGD Strain format, the first line is a header.
     Also assumes that the 5th column is the first one with a sample name, and
     that every other column after that is a strain and that the alternating
     columns are a confidence score.
@@ -500,7 +437,8 @@ def validate_strains(strains_string, snp_file_name, vcf=False):
 
 
 def perform_desnp(probes_file, snps_file, strains_string, output_file,
-                  delimiter='\t', is_vcf=False, id_col="", flag=False):
+                  delimiter='\t', is_vcf=False, id_col=PROBE_ID_COL_NAME,
+                  flag=False):
     """
 
     :param probes_file:
@@ -519,6 +457,9 @@ def perform_desnp(probes_file, snps_file, strains_string, output_file,
         output_file = desnp_utils.check_file(output_file, mode="w")
 
         strains = validate_strains(strains_string, snps_file, is_vcf)
+
+        if not id_col:
+            id_col = PROBE_ID_COL_NAME
 
         with desnp_utils.open_resource(probes_file, 'rt') as probes_fd, \
              desnp_utils.open_resource(output_file, 'w') as out_fd:
@@ -557,7 +498,7 @@ def perform_desnp(probes_file, snps_file, strains_string, output_file,
                     input_header = line
                     continue
 
-                tmp_probes = parse_probe(line, input_header, PROBE_ID_COL_NAME)
+                tmp_probes = parse_probe(line, input_header, id_col)
                 probe_counter += len(tmp_probes)
 
                 # if we haven't written out the header line for our output files
@@ -578,65 +519,79 @@ def perform_desnp(probes_file, snps_file, strains_string, output_file,
                     # where under each strain is the colon separated list of
                     # position with a SNP for that strain, empty string where
                     # there are no SNPs for the strain.
-                    rej_strains = ";".join(sorted(strains.keys(), key=str.lower))
+                    rej_strains = ";".join(sorted(strains.keys(),
+                                                  key=str.lower))
                     rej_head.append(rej_strains)
                     rej_writer.writerow(rej_head)
                     headers_written = True
 
-                # Checking to see if this is a valid Chromosome...ValueError would be a no.
+                # checking to see if this is a valid Chromosome...
+                # ValueError would be a no.
                 try:
-                    #  All probes in tmp_probes are the same probe, different locations, so the
-                    #  chromosome is the same
+                    # all probes in tmp_probes are the same probe, different
+                    # locations, so the chromosome is the same
                     CHRS.index(tmp_probes[0].chromosome)
                 except ValueError:
                     if tmp_probes[0].chromosome is None:
                         continue
                     else:
-                        #  Chromosome not supported, keep it in probe set...
-                        # logging.warning("Chr " + str(tmp_probes[0].chromosome) + " not supported.  " +
-                        #                "Keeping probe... " + str(tmp_probes[0].id))
+                        # Chromosome not supported, keep it in probe set...
                         out_list = tmp_probes[0].asList()
+
                         if flag:
                             out_list.append("")
+
                         writer.writerow(out_list)
                         written_probes += 1
                         continue
                 else:
-                    a = datetime.now()
+                    _time = datetime.now()
                     probe_snp_list = get_SNP_list(tmp_probes, snp_reader)
-                    b = datetime.now()
-                    c = b - a
-                    if DEBUG_TIME_TEST["findSnp"] == None:
-                        DEBUG_TIME_TEST["findSnp"] = c
-                    else:
-                        DEBUG_TIME_TEST["findSnp"] = DEBUG_TIME_TEST["findSnp"] + c
 
-                    a = datetime.now()
-                    ret = _deSNP(tmp_probes[0], probe_snp_list, strains, writer, rej_writer, is_vcf, flag)
+                    if DEBUG_TIME_TEST["findSnp"] is None:
+                        DEBUG_TIME_TEST["findSnp"] = datetime.now() - _time
+                    else:
+                        DEBUG_TIME_TEST["findSnp"] = \
+                            DEBUG_TIME_TEST["findSnp"] + \
+                            (datetime.now() - _time)
+
+                    _time = datetime.now()
+                    ret = _deSNP(tmp_probes[0], probe_snp_list, strains,
+                                 writer, rej_writer, is_vcf, flag)
+
                     written_snps += ret[0]
                     written_probes += ret[1]
-                    b = datetime.now()
-                    c = b - a
 
-                    if DEBUG_TIME_TEST["deSnp"] == None:
-                        DEBUG_TIME_TEST["deSnp"] = c
+                    if DEBUG_TIME_TEST["deSnp"] is None:
+                        DEBUG_TIME_TEST["deSnp"] = datetime.now() - _time
                     else:
-                        DEBUG_TIME_TEST["deSnp"] = DEBUG_TIME_TEST["deSnp"] + c
+                        DEBUG_TIME_TEST["deSnp"] = \
+                            DEBUG_TIME_TEST["deSnp"] + \
+                            (datetime.now() - _time)
 
-            LOG.debug("Took " + str(DEBUG_TIME_TEST["findSnp"]) + " to find SNPS")
-            LOG.debug("Took " + str(DEBUG_TIME_TEST["deSnp"]) + " to do DeSNPing")
-            LOG.info("finished processing at: " + time.strftime("%H:%M:%S") +
-                         "\n")
-            LOG.info("Total probes = " + str(probe_counter) + \
-                         " probes without snps between strains = " + str(written_probes) \
-                         + " probes with snps between strains = " + str(written_snps))
+            LOG.debug("Took {} to find SNPS".format(
+                DEBUG_TIME_TEST["findSnp"]))
+
+            LOG.debug("Took {} to do DeSNPing".format(
+                DEBUG_TIME_TEST["deSnp"]))
+
+            LOG.info("Finished processing at: {}".format(
+                time.strftime("%H:%M:%S")))
+
+            LOG.info("Total probes: {}".format(probe_counter))
+
+            LOG.info("Probes without snps between strains: {}".format(
+                written_probes))
+
+            LOG.info("Probes with snps between strains: {}".format(
+                written_snps))
 
             LOG.info("DeSNP Completed Successfully")
             sys.exit(0)
     except Exception as detail:
-        #import traceback
-        #traceback.print_exc(file=sys.stdout)
-        #print("-" * 60)
+        import traceback
+        traceback.print_exc(file=sys.stdout)
+        print("-" * 60)
         LOG.error("DeSNP did not run to completion " + str(detail))
         sys.exit(1)
 

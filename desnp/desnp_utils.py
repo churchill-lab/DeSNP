@@ -19,7 +19,8 @@ def check_file(filename, mode='r'):
         if filename and os.path.exists(filename):
             return os.path.abspath(filename)
 
-        raise DeSNPError("The following file does not exist: {0}".format(filename))
+        raise DeSNPError(
+            "The following file does not exist: {0}".format(filename))
 
     elif mode == 'w':
         file_dir = '.'
@@ -58,7 +59,8 @@ def open_resource(resource, mode='rb'):
     """
     Open different types of files and return the handle.
 
-    :param resource: a file located locally or on the internet.  Gzip'd and zip'd files are handled.
+    :param resource: a file located locally or on the internet.
+                     Gzip'd and zip'd files are handled.
     :param mode: standard file open modes
     :return: the resource (file) handle
     """

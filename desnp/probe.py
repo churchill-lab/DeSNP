@@ -1,24 +1,5 @@
 # -*- coding: utf-8 -*-
 
-
-"""
-  Copyright (c) 2019 The Churchill Lab
-  
-  This is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
- 
-  This software is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
- 
-  You should have received a copy of the GNU General Public License
-  along with this software.  If not, see <http://www.gnu.org/licenses/>.
-
-"""
-
 import sys
 import numpy as np
 
@@ -64,45 +45,42 @@ def probeAttribute(p, value):
 
     Returns the set method to call
     """
-    return {'id':p.setId,
-           'probe id':p.setProbeId,
-           'probe_id':p.setProbeId,
-           'probeset id':p.setProbeSetId,
-           'probe start':p.setProbeStart,
-           'probe_start':p.setProbeStart,
-           'start_position':p.setProbeStart,
-           'probe end':p.setProbeEnd,
-           'probe_end':p.setProbeEnd,
-           'end_position':p.setProbeEnd,
-           'location':p.setLocation,
-           'genomic_position':p.setLocation,
-           'position':p.setLocation,
-           'sequence':p.setSequence,
-           'probe_sequence':p.setSequence,
-           'mgi id':p.setGeneId,
-           'mgi_id':p.setGeneId,
-           'gene id':p.setGeneId,
-           'ensembl_gene_id':p.setGeneId,
-           #'external_id':p.setGeneId,
-           'mgi symbol':p.setSymbol,
-           'mgi_symbol':p.setSymbol,
-           'symbol':p.setSymbol,
-           'gene symbol':p.setSymbol,
-           'mgi name':p.setName,
-           'gene name':p.setName,
-           'name':p.setName,
-           'gene position':p.setGeneLocation,
-           'gene_position':p.setGeneLocation,
-           'chr':p.setChr,
-           'chromosome':p.setChr,
-           'probe_chrom':p.setChr,
-           'gene_chromosome':p.setChr,
-           'start':p.setStart,
-           'gene_start':p.setStart,
-           'end':p.setEnd,
-           'gene_end':p.setEnd,
-           'strand':p.setStrand,
-           'gene_strand':p.setStrand}[value]
+    return {'id': p.setId,
+            'probe id': p.setProbeId,
+            'probe_id': p.setProbeId,
+            'probeset id': p.setProbeSetId,
+            'probe start': p.setProbeStart,
+            'probe_start': p.setProbeStart,
+            'start_position': p.setProbeStart,
+            'probe end': p.setProbeEnd,
+            'probe_end': p.setProbeEnd,
+            'end_position': p.setProbeEnd,
+            'location': p.setLocation,
+            'genomic_position': p.setLocation,
+            'position': p.setLocation,
+            'sequence': p.setSequence,
+            'probe_sequence': p.setSequence,
+            'mgi_id': p.setGeneId,
+            'gene id': p.setGeneId,
+            'ensembl_gene_id': p.setGeneId,
+            # 'external_id':p.setGeneId,
+            'mgi_symbol': p.setSymbol,
+            'symbol': p.setSymbol,
+            'gene symbol': p.setSymbol,
+            'mgi name': p.setName,
+            'gene name': p.setName,
+            'name': p.setName,
+            'gene_position': p.setGeneLocation,
+            'chr': p.setChr,
+            'chromosome': p.setChr,
+            'probe_chrom': p.setChr,
+            'gene_chromosome': p.setChr,
+            'start': p.setStart,
+            'gene_start': p.setStart,
+            'end': p.setEnd,
+            'gene_end': p.setEnd,
+            'strand': p.setStrand,
+            'gene_strand': p.setStrand}[value]
 
 
 def parse_probe(line, header, probe_id_col_name="id"):
@@ -129,25 +107,27 @@ def parse_probe(line, header, probe_id_col_name="id"):
     for i in range(len(line)):
         #  Use the header names to set the appropriate attribute
         try:
-            #TODO: consider changing this so it co
-            # If the user has provided an ID column other than "id", we need to set the id field
-            if "id" != probe_id_col_name and header[i].lower() == probe_id_col_name.lower():
+            if "id" != probe_id_col_name and \
+                    header[i].lower() == probe_id_col_name.lower():
                 probe.setId(line[i])
-            # If the user has assigned an id column other than "id", but there is a column named
-            # "id" in the file, skip it.
             elif "id" != probe_id_col_name and header[i].lower() == "id":
+                # If the user has assigned an id column other than "id", but
+                # there is a column named "id" in the file, skip it.
                 continue
 
-            # for all columns call the method in probeAttribute to set the right attribute in
-            # probe object.
+            # for all columns call the method in probeAttribute to set the
+            # right attribute in probe object.
             probeAttribute(probe, header[i].lower())(line[i])
                 
-            # if location has a value, and there are multiple positions in location
-            # note it.  We'll need to duplicate the probe.
-            if (header[i].lower() == 'location' or header[i].lower() == 'genomic_position' or
-                        header[i].lower() == 'position'):
+            # if location has a value, and there are multiple positions in
+            # location note it.  We'll need to duplicate the probe.
+            if header[i].lower() == 'location' or \
+                    header[i].lower() == 'genomic_position' or \
+                    header[i].lower() == 'position':
+
                 if probe.location and (";" in probe.location):
                     locations = probe.location.split(";")
+
                     if len(locations) > 1:
                         multiple_locations = True
         except KeyError:
@@ -155,14 +135,16 @@ def parse_probe(line, header, probe_id_col_name="id"):
             continue
 
     first = True
-    #  if there are "multiple locations" in the probe.location attribute, then
-    #  we need to create a separate probe instance for each location
+
     if multiple_locations:
-        #locations = probe.locations.split(";")
+        # if there are "multiple locations" in the probe.location attribute,
+        # then we need to create a separate probe instance for each location
         locations = probe.location.split(";")
+
         for location in locations:
             (chrom,loc_range) = location.split(":")
             (pstart,pend) = loc_range.split("-")
+
             if first:
                 probe.setChr(chrom)
                 probe.setProbeStart(pstart)
@@ -175,9 +157,11 @@ def parse_probe(line, header, probe_id_col_name="id"):
                 p.setProbeStart(pstart)
                 p.setProbeEnd(pend)
                 probes.append(p)
-    #  If there are not multiple locations, but there is a value in the location
-    #  field, this over-rides the individual Chr, and ProbeStart and ProbeEnd attributes.
-    elif (probe.location and (":" in probe.location)):
+
+    elif probe.location and (":" in probe.location):
+        # If there are not multiple locations, but there is a value in the
+        # location field, this over-rides the individual Chr, and ProbeStart
+        # and ProbeEnd attributes.
         (chrom,loc_range) = probe.location.split(":")
         (pstart,pend) = loc_range.split("-")
         probe.setChr(chrom)
@@ -190,14 +174,8 @@ def parse_probe(line, header, probe_id_col_name="id"):
     return probes
 
 
-
-
 class Probe(object):
     """Class for holding the details about a single probe.
-
-    This class is directly tied to the 'probe.csv' file that comes from moosedb.
-    It assumes the column names from moosedb and uses them to assign the
-    appropriate attributes.
     """
     id = None
     probe_id = None
@@ -222,17 +200,20 @@ class Probe(object):
         self.header = header           
             
     def __str__(self):
-        return str(self.id) + ", " + str(self.probe_id) + ", " + str(self.probeset_id) + ", " + str(self.location) + ", " + str(self.probe_start) + ", " + str(self.probe_end) + ", " +  str(self.chromosome)
+        return str(self.id) + ", " + str(self.probe_id) + ", " + \
+               str(self.probeset_id) + ", " + str(self.location) + ", " + \
+               str(self.probe_start) + ", " + str(self.probe_end) + ", " +  \
+               str(self.chromosome)
     
-    def setId(self,value):
+    def setId(self, value):
         self.id = value
         
-    def setChr(self,value):
+    def setChr(self, value):
         if value.startswith("chr"):
             value = value[3:]
         self.chromosome = value
         
-    def setProbeStart(self,value):
+    def setProbeStart(self, value):
         try:
             self.probe_start = int(value)
         except ValueError:
@@ -244,39 +225,39 @@ class Probe(object):
         except:
             pass
         
-    def setLocation(self,value):
+    def setLocation(self, value):
         self.location = value
 
-    def setSequence(self,value):
+    def setSequence(self, value):
         self.sequence = value
         
-    def setStrand(self,value):
+    def setStrand(self, value):
         self.strand = value
         
-    def setProbeId(self,value):
+    def setProbeId(self, value):
         self.probe_id = value
         if not self.id:
             self.id = self.probe_id
         
-    def setProbeSetId(self,value):
+    def setProbeSetId(self, value):
         self.probeset_id = value
         
-    def addProbeSetId(self,value):
+    def addProbeSetId(self, value):
         if self.probeset_id:
             self.probeset_id += ";" + value
         else:
             self.probeset_id = value
         
-    def setGeneId(self,value):
+    def setGeneId(self, value):
         self.gene_id = value
         
-    def setSymbol(self,value):
+    def setSymbol(self, value):
         self.symbol = value
         
-    def setName(self,value):
+    def setName(self, value):
         self.name = value
         
-    def setGeneLocation(self,value):
+    def setGeneLocation(self, value):
         try:
             self.gene_location = value
             chr,loc = value.split(":")
@@ -285,16 +266,16 @@ class Probe(object):
             self.setStart(s)
             self.setEnd(e)
         except:
-            if str(value) != '' and value != None:
-                sys.stderr.write("Invalid location -> '" + str(value) + "'  Skipping.\n")
+            if str(value) != '' and value is not None:
+                print("Invalid location -> '{}'  Skipping.".format(str(value)))
         
-    def setStart(self,value):
+    def setStart(self, value):
         try:
             self.start_pos = int(value)
         except:
             pass
         
-    def setEnd(self,value):
+    def setEnd(self, value):
         try:
             self.end_pos = int(value)
         except:
@@ -337,8 +318,8 @@ class Probe(object):
         else:
             value = [self.id, self.probe_id, self.probeset_id, self.sequence,
                  self.probe_start, self.probe_end,
-                 self.gene_id, self.symbol, self.name, self.strand, self.chromosome, 
-                 self.start_pos, self.end_pos]
+                 self.gene_id, self.symbol, self.name, self.strand,
+                 self.chromosome, self.start_pos, self.end_pos]
                         
         # If there are intensity values, append them last in the order we
         # have them
@@ -367,7 +348,6 @@ class Probe(object):
         p.setIntensities(self.intensities)
         p.setSampleNames(self.sampleNames)
         return p
-
 
 
 class ProbeSet(object):
@@ -486,8 +466,8 @@ class ProbeSet(object):
         return list
         
     def asList(self):
-        value = [self.gene_id, self.symbol, self.name, self.strand, self.chromosome, 
-                 self.start_pos, self.end_pos]
+        value = [self.gene_id, self.symbol, self.name, self.strand,
+                 self.chromosome, self.start_pos, self.end_pos]
                         
         # If there are intensity values, append them last in the order we
         # have them
@@ -497,7 +477,8 @@ class ProbeSet(object):
             except ValueError as exc:
                 print("An 'ValueError' exception has occured...")
                 print("'" + str(value) + "'")
-                print(str(self.gene_id) + "," + str(self.symbol) + "," + str(self.chromosome))
+                print(str(self.gene_id) + "," + str(self.symbol) + "," +
+                      str(self.chromosome))
                 print(type(self.intensities))
                 print(len(self.intensities))
                 print("'" + str(self.intensities) + "'")

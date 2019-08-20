@@ -1,83 +1,20 @@
 # -*- coding: utf-8 -*-
 
-"""
-summarize.py
-February 10, 2012
-Dave Walton - dave.walton@jax.org
-
-August 15, 2019
-Matthew Vincent - matt.vincent@jax.org
-
-This program is intended for summarizing probe data so that it can
-be passed on to the GEM database and application for mining and more
-advanced analysis.
-
-  Copyright (c) 2012 The Jackson Churchill Lab
-  
-  This is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
- 
-  This software is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
- 
-  You should have received a copy of the GNU General Public License
-  along with this software.  If not, see <http://www.gnu.org/licenses/>.
-
-"""
-import sys
-import os
-import getopt
-import logging
-import time
 import csv
-import zipfile
-import operator
-import numpy as np
 import json
+import operator
+import time
 from datetime import datetime
 
-from desnp import medpolish as mp
-from desnp.probe import ProbeSet
-from desnp.probe import parse_probe
+import numpy as np
 
+from . import desnp
+from . import desnp_utils
+from . import exceptions
+from . import medpolish as mp
+from . import probe
 
-
-class SummarizationError(Exception):
-    def __init__(self, value):
-        self.value = value
-
-    def __str__(self):
-        return repr(self.value)
-
-def usage():
-    """
-    usage() method prints valid parameters to program.
-    """
-    print("Usage: \n    ", sys.argv[0],\
-        "[OPTIONS] -z <probes.zip> (1st form)\n    ",\
-        sys.argv[0], "[OPTIONS] -p <probes.tsv> -s <samples.tsv> -d <data.tsv> (2nd form)\n",\
-        "OPTIONS:\n", \
-        "    -g, --group    how to group probe sets, options are 'probe', 'gene' (default)\n\n",\
-        "    -e, --extra    generate an additional json file containing extra median polish results.\n",\
-        "                   This option only works with gene grouping, otherwise median polish not run.\n\n",\
-        "    -h, --help     return this message\n\n", \
-        "    -i, --idcol    the name of the unique probe id column.  if not provided assumes 'id'\n\n",\
-        "    -l, --log      same as verbose but sends diagnostics to desnp.log\n\n", \
-        "    -o, --out      the name of the output file the results will go to\n\n",\
-        "    -v, --verbose  show informational messages\n\n",\
-        "    -z, --zip      a zip containing the data, probe and sample annotations.\n",\
-        "                   This assumes there are the following files in the zip:\n",\
-        "                     probes.tsv\n",\
-        "                     data.tsv\n",\
-        "                     samples.tsv\n\n",\
-        "    -p, --probe    The file containing the probes to be summarized (don't use with -z)\n\n",\
-        "    -d, --data     The matix of intensity data (don't use with -z)\n\n",\
-        "    -s, --sample   The design file containing the samples (don't use with -z)\n\n",\
-        "    -c, --samplecol The column in the design file containing our unique sample identifier/name\n\n")
+LOG = desnp.get_logger()
 
 
 def quantnorm(x):
@@ -86,336 +23,181 @@ def quantnorm(x):
     It takes a numpy matrix and does quantile normalization of the matrix.
     Returns the normalized matrix
     """
-    logging.debug(x)
     rows, cols = x.shape
     sortIndexes = np.argsort(x, axis=0)
+
     for row in range(rows):
         currIndexes = sortIndexes[row, :]
         x[currIndexes, range(cols)] = np.median(x[currIndexes, range(cols)])
 
+
 class Summary(object):
-    #  This list is used to keep the order we read our probes in.
-    g_probe_ids = []
 
-    #  This indicates whether we are grouping by probe or gene
-    g_group = None
+    def __init__(self, data_file, probe_file, sample_file,
+                 out_file=None, group='gene', extra=False,
+                 idcol=None, sample_col=None):
 
-    # When we run against the Moosedb SNP file, we make certain assumptions about
-    # naming conventions of files in the zip.  We will first look for a desnp.conf
-    # file.  If it does not exist, then we use the defaults below.
-    PROBE_FILE = "probes.tsv"
-    SAMPLE_FILE = "samples.tsv"
-    DATA_FILE = "data.tsv"
+        #  This list is used to keep the order we read our probes in.
+        self.probe_ids = []
 
-    # This is only included because a probe can exist multiple times in the file with the only difference being the
-    # probeset id.  When reading in our probes, we want a unique entry for each, so we just concatenated the
-    # probeset id to the probeset id attribute in the Probe object.  PROBESET ID IS NOT A REQUIRED COLUMN!
-    PROBE_SET_COL_NAME = "ProbeSet ID"
-    # PROBE ID COLUMN IS REQUIRED.  We assume it is unique and named "id"
-    PROBE_ID_COL_NAME  = "id"
-    SAMPLE_COL_NAME = "sampleid"
-    SAMPLE_COL_NAME_ALT = "Sample"
+        #  This indicates whether we are grouping by probe or gene
+        self.group = None
 
-    input_file_name = None
-    out_file_name = None
-    extra_output = False
-    delim = '\t'
-    zip_used = False
-    cmd_line_probe_file = False
+        self.group = group
+        self.extra = extra
+        self.delim = '\t'
+        self.probe_id_col_name = "id"
+        self.probe_set_col_name = "ProbeSet ID"
+        self.sample_col_name = "sampleid"
+        self.sample_col_name_alt = "Sample"
 
+        self.data_file = desnp_utils.check_file(data_file)
+        self.probe_file = desnp_utils.check_file(probe_file)
+        self.sample_file = desnp_utils.check_file(sample_file)
 
-    initialized = False
-
-    def __init__(self, input_file_name, out_file_name, g_group='gene',
-                 verbose=False, delim='\t',zip_used=False, log=False,
-                 extra_output=False, probe_file=None, sample_file=None,
-                 data_file=None, id_col="", sample_col=""):
-
-        self.input_file_name = input_file_name
-        self.out_file_name = out_file_name
-        self.verbose = verbose
-        self.g_group = g_group
-        self.extra_output = extra_output
-        self.delim = delim
-        self.zip_used = zip_used
-
-        #  See if desnp.conf file exists
-        if os.path.exists("desnp.conf") and os.path.isfile("desnp.conf"):
-            conf = open("desnp.conf",'r')
-            line = conf.readline()
-            parameters = {}
-            while (line):
-                (key,value) = line.split("=")
-                key = key.strip()
-                value = value.strip()
-                parameters[key] = value
-                line = conf.readline()
-            if parameters.has_key("SAMPLE_FILE"):
-                self.SAMPLE_FILE = parameters["SAMPLE_FILE"]
-            if parameters.has_key("PROBE_FILE"):
-                self.PROBE_FILE = parameters["PROBE_FILE"]
-            if parameters.has_key("DATA_FILE"):
-                self.DATA_FILE = parameters["DATA_FILE"]
-            if parameters.has_key("PROBE_ID_COL_NAME"):
-                self.PROBE_ID_COL_NAME = parameters["PROBE_ID_COL_NAME"]
-        #  If an id column is passed in takes precedence over config
-        if id_col != "":
-            self.PROBE_ID_COL_NAME = id_col
-        if sample_col != "":
-            self.SAMPLE_COL_NAME = sample_col
-
-        #  The probe file is a special case.  If a zip file is used AND a probe
-        #  file name is given, that indicates the user wants to read the
-        #  sample and data from zip, but used the provided probe file.
-        #  This is SOP for probes that were desnped first from a zip file.
-        if probe_file:
-            self.PROBE_FILE = probe_file
-            self.cmd_line_probe_file = True
-
-        if sample_file:
-            self.SAMPLE_FILE = sample_file
-
-        if data_file:
-            self.DATA_FILE = data_file
-
-        # If "log" flag has been used, write diagnostics to summarize.log
-        if log:
-            self.verbose = True
-            logging.basicConfig(filename="summarize.log", level=logging.DEBUG,
-                filemode='w', format='%(levelname)s: %(asctime)s - %(message)s')
-            logging.info("Logger file summarize.log")
-        elif self.verbose:
-            logging.basicConfig(format='%(levelname)s %(asctime)s - %(message)s',
-                filemode='w',
-                level=logging.DEBUG)
+        if out_file is not None:
+            self.out_file = desnp_utils.check_file(out_file, 'w')
         else:
-            logging.basicConfig(format='%(levelname)s %(asctime)s - %(message)s',
-                filemode='w',
-                level=logging.ERROR)
+            self.out_file = desnp_utils.check_file('statistics.tsv', 'w')
 
-        if verbose:
-            if zip_used:
-                logging.info(" ZIP = " + str(zip_used))
-                logging.info("Zip file = " + self.input_file_name)
-            # probe file is the only one that can be used in conjunction
-            # with the zip file
-            if probe_file:
-                logging.info("Using probe file provided: " + probe_file)
-            if sample_file and not zip_used:
-                logging.info("Using sample file provided: " + sample_file)
-            if data_file and not zip_used:
-                logging.info("Using data file provided: " + data_file)
-            if out_file_name:
-                logging.info("Output will be written to: " + out_file_name)
+        if idcol is not None:
+            self.probe_id_col_name = idcol
 
-        if not zip_used and (not probe_file or not data_file or not sample_file):
-            logging.warning("Must either provide zip file or you must " +
-                            "explicitly name all input files!\n")
-            self.initialized = False
-        else:
-            self.initialized = True
+        if sample_col is not None:
+            self.sample_col_name = sample_col
+
+        LOG.debug("Using data file provided: {}".format(data_file))
+        LOG.debug("Using probe file provided: {}".format(probe_file))
+        LOG.debug("Using sample file provided: {}".format(sample_file))
 
     def process(self):
 
-        if not self.initialized:
-            msg = "Cannot process until Summary fully initialized!"
-            logging.error(msg)
-            raise SummarizationError(msg)
+        LOG.debug("Started processing at: {}".format(time.strftime("%H:%M:%S")))
 
-        if self.verbose:
-            logging.info("started processing at: " + time.strftime("%H:%M:%S"))
+        with desnp_utils.open_resource(self.data_file, 'rt') as data_fd, \
+             desnp_utils.open_resource(self.probe_file, 'rt') as probe_fd, \
+             desnp_utils.open_resource(self.sample_file, 'rt') as sample_fd, \
+             desnp_utils.open_resource(self.out_file, 'w') as writer_fd:
 
-        #
-        #  Main Program Logic
-        #
-        zip = None
-        probe_fd = None
-        data_fd = None
-        sample_fd = None
+            writer = csv.writer(writer_fd, delimiter=self.delim)
 
-        #  If a zip file was provided set the probe, sample and data file
-        #  descriptors, if not file specifically provided on cmd line
-        if self.zip_used and zipfile.is_zipfile(self.input_file_name):
-            zip = zipfile.ZipFile(self.input_file_name, 'r')
-            if self.cmd_line_probe_file:
-                try:
-                    probe_fd = open(self.PROBE_FILE, 'r')
-                except IOError:
-                    logging.error("Error: Problem trying to open probe file: " +
-                                  self.PROBE_FILE)
-                    raise
+            _time = datetime.now()
+
+            # get our set of filtered probes
+            probes = self.get_probes(probe_fd)
+
+            # get our set of sample names
+            samples = self.get_sample_names(sample_fd)
+
+            # Add the intensity data to the probe objects
+            self.add_probe_data(probes, data_fd)
+
+            LOG.debug("Loading data took: {}".format(datetime.now() - _time))
+
+            # diagnostic count only
+            group_count = 0
+
+            # if there are no probes left after filtering for gene start and end
+            # skip this step
+            if len(probes) > 0:
+                # Generate a single intensity matrix
+                intensity_matrix = self.get_intensity_matrix(probes)
+
+                _time = datetime.now()
+
+                # log2 Transform matrix
+                log2_matrix = np.log2(intensity_matrix)
+
+                LOG.debug("log2 took: {}".format(datetime.now() - _time))
+
+                _time = datetime.now()
+
+                # do quantile norm of matrix (method updates log2_matrix by ref)
+                quantnorm(log2_matrix)
+
+                LOG.debug("quantnorm took: {}".format(datetime.now() - _time))
+
+                i = 0
+
+                _time = datetime.now()
+
+                for probe_id in self.probe_ids:
+                    intensity_row = log2_matrix[i]
+                    inten_array = intensity_row.tolist()
+                    probe = probes[probe_id]
+                    probe.setIntensities(inten_array)
+                    i += 1
+
+                LOG.debug("resetting intensities took: {}".format(
+                    datetime.now() - _time))
+
+                # create our groupings and write the the statistics file
+                if self.group != 'probe':
+                    _time = datetime.now()
+                    groupings = self.group_probesets_by_gene(probes, samples)
+
+                    LOG.debug("grouping Probesets took: {}".format(
+                        datetime.now() - _time))
+
+                    group_count = len(groupings)
+
+                    _time = datetime.now()
+                    sorted(groupings, key=lambda grouping: (grouping.chromosome,
+                                                            grouping.start_pos))
+
+                    LOG.debug("sorting groupings took: {}".format(
+                        datetime.now() - _time))
+
+                    first = True
+
+                    _time = datetime.now()
+                    medpol_groupings = []
+
+                    for grouping in groupings:
+                        if first:
+                            writer.writerow(grouping.headList())
+                            first = False
+                        writer.writerow(grouping.asList())
+
+                        if self.extra:
+                            medpol_groupings.append(grouping.med_polish_results)
+
+                    if self.extra:
+                        md = open("median_polish_by_group.json", 'w')
+                        md.write(json.dumps(medpol_groupings))
+
+                    LOG.debug("writing groupings took: {}".format(
+                        datetime.now() - _time))
+                else:
+                    first = True
+                    group_count = len(self.probe_ids)
+
+                    for probe_id in self.probe_ids:
+                        if first:
+                            writer.writerow(probe.headList())
+                            first = False
+
+                        writer.writerow(probe.asList())
             else:
-                try:
-                    probe_fd = zip.open(self.PROBE_FILE, 'r')
-                except KeyError:
-                    logging.error("File " + self.PROBE_FILE + " does not exist " +
-                                  "in zip: " + self.input_file_name)
-                    raise
-            try:
-                data_fd = zip.open(self.DATA_FILE,'r')
-            except KeyError:
-                logging.error("Error: file data.tsv does not exist in zip: " +
-                              self.input_file_name)
-                raise
-            try:
-                sample_fd = zip.open(self.SAMPLE_FILE, 'r')
-            except KeyError:
-                logging.error("Error: file samples.tsv does not exist in zip: " +
-                                self.input_file_name)
-                raise
-        #  If we get here, zip was provided but wasn't a zip
-        elif self.zip_used:
-            msg = self.input_file_name + " is not a valid zip file!"
-            logging.error(msg)
-            raise SummarizationError(msg)
-        #  No probe file descriptor set yet, let's try getting from local dir
-        if not probe_fd:
-            try:
-                probe_fd = open(self.PROBE_FILE, 'r')
-            except IOError:
-                logging.error("Error: Problem trying to open probe file: " +
-                              self.PROBE_FILE)
-                raise
-        #  No data file descriptor set yet, let's try getting from local dir
-        if not data_fd:
-            try:
-                data_fd = open(self.DATA_FILE,'r')
-            except IOError:
-                logging.error("Error: Problem trying to open data file: " +
-                              self.DATA_FILE)
-                raise
-        #  No sample file descriptor set yet, let's try getting from local dir
-        if not sample_fd:
-            try:
-                sample_fd = open(self.SAMPLE_FILE, 'r')
-            except IOError:
-                logging.error("Error: Problem trying to open sample file: " +
-                              self.SAMPLE_FILE)
-                raise
+                LOG.info("No probes left to summarize.")
+                LOG.info("Possibly there were no Gene Start and End values in")
+                LOG.info("'{}'".format(self.probe_file))
 
-        #  Default is that writer will write to standard out
-        writer_fd = None
-        if self.out_file_name:
-            # If out_file_name explicitly included use it...
-            writer_fd = open(self.out_file_name,'w')
-        else:
-            # If no outfile name we'll write our output to
-            # 'statistics.csv'
-            out_file_name = "statistics.tsv"
-            writer_fd = open(out_file_name,'w')
-        writer = csv.writer(writer_fd, delimiter=self.delim)
+            # force any data written to file
+            writer_fd.flush()
+            writer_fd.close()
 
-        a = datetime.now()
-        # Get our set of filtered probes
-        probes = self.getProbes(probe_fd)
+        LOG.info("finished processing at: {}".format(time.strftime("%H:%M:%S")))
+        LOG.info("Total groupings = {} from {} probes".format(
+            str(group_count), str(len(self.probe_ids))))
 
-        # Get our set of sample names
-        samples = self.getSampleNames(sample_fd)
-
-        # Add the intensity data to the probe objects
-        self.addProbeData(probes, data_fd)
-
-        b = datetime.now()
-        c = b - a
-        logging.debug("Loading data took " + str(c))
-
-        # Diagnostic count only
-        group_count = 0
-
-        #  If there are no probes left after filtering for gene start and end
-        #  Skip this step
-        if (len(probes) > 0):
-            # Generate a single intensity matrix
-            intensity_matrix = self.getIntensityMatrix(probes)
-
-            a = datetime.now()
-            # Log2 Transform matrix
-            log2_matrix = np.log2(intensity_matrix)
-            b = datetime.now()
-            c = b - a
-            logging.debug("log2 took " + str(c))
-
-            a = datetime.now()
-            # Do quantile norm of matrix (method updates log2_matrix by ref)
-            quantnorm(log2_matrix)
-            b = datetime.now()
-            c = b - a
-            logging.debug("quantnorm took " + str(c))
-
-            i = 0
-
-            a = datetime.now()
-            for probe_id in self.g_probe_ids:
-                intensity_row = log2_matrix[i]
-                inten_array = intensity_row.tolist()
-                #inten_array = []
-                #for intensity in intensity_row:
-                #    inten_array.append(intensity)
-                i += 1
-                probe = probes[probe_id]
-                probe.setIntensities(inten_array)
-            b = datetime.now()
-            c = b - a
-            logging.debug("resetting intensities took " + str(c))
-
-            # Create our groupings and write the the statistics file
-            if self.g_group != 'probe':
-                a = datetime.now()
-                groupings = self.groupProbesetsByGene(probes, samples)
-                b = datetime.now()
-                c = b - a
-                logging.debug("grouping Probesets took " + str(c))
-                group_count = len(groupings)
-                a = datetime.now()
-                sorted(groupings, key=lambda grouping: (grouping.chromosome,
-                                                        grouping.start_pos))
-                b = datetime.now()
-                c = b - a
-                logging.debug("sorting groupings took " + str(c))
-                first = True
-                a = datetime.now()
-                medpol_groupings = []
-                for grouping in groupings:
-                    if first:
-                        writer.writerow(grouping.headList())
-                        first = False
-                    writer.writerow(grouping.asList())
-                    if self.extra_output:
-                        medpol_groupings.append(grouping.med_polish_results)
-                if self.extra_output:
-                    md = open("median_polish_by_group.json", 'w')
-                    md.write(json.dumps(medpol_groupings))
-                b = datetime.now()
-                c = b - a
-                logging.debug("writing groupings took " + str(c))
-            else:
-                first = True
-                group_count = len(self.g_probe_ids)
-                for probe_id in self.g_probe_ids:
-                    if first:
-                        writer.writerow(probe.headList())
-                        first = False
-
-                    writer.writerow(probe.asList())
-        else:
-            logging.info("No probes left to summarize.  Possibly there were no Gene Start and End values in '" + self.PROBE_FILE + "'")
-        #  Force any data written to file
-        writer_fd.flush()
-        writer_fd.close()
-
-
-        if self.verbose:
-            logging.info("finished processing at: " + time.strftime("%H:%M:%S") +
-                         "\n")
-            logging.info("Total groupings = " + str(group_count) +  \
-                         " from " + str(len(self.g_probe_ids)) + " probes")
-
-    def getProbes(self, probe_fd):
+    def get_probes(self, probe_fd):
         """
-        Takes a file descriptor for a probe file.  Assumes file is delimited by tabs.
-        Makes the assumption that the probe set id column is "ProbeSet ID" and that the
-        probe id column is "id".  Does not assume column order, but uses these two fields to extract
-        information.  Returns a dictionary of Probe objects.
+        Takes a file descriptor for a probe file.  Assumes file is delimited by
+        tabs. Makes the assumption that the probe set id column is "ProbeSet ID"
+        and that the probe id column is "id".  Does not assume column order,
+        but uses these two fields to extract information.  Returns a dictionary
+        of Probe objects.
         """
         probes = {}
         reader = csv.reader(probe_fd, delimiter="\t")
@@ -424,316 +206,236 @@ class Summary(object):
         id_col = -1
         psi_col = -1
         dropped_no_start_end = 0
+
         for line in reader:
             # skip header
             if first:
                 header = line
-                logging.debug("Header " + str(header))
-                if self.PROBE_SET_COL_NAME in header:
-                    psi_col = header.index(self.PROBE_SET_COL_NAME)
-                if self.PROBE_ID_COL_NAME in header:
-                    id_col = header.index(self.PROBE_ID_COL_NAME)
-                    logging.debug("ID COL IS " + str(id_col))
+                LOG.debug("Header: {}".format(header))
+
+                if self.probe_set_col_name in header:
+                    psi_col = header.index(self.probe_set_col_name)
+
+                if self.probe_id_col_name in header:
+                    id_col = header.index(self.probe_id_col_name)
+                    LOG.debug("ID COL IS: {}".format(id_col))
                 else:
-                    msg = "ID column name " + self.PROBE_ID_COL_NAME + " does not exist in probe input file!"
-                    logging.error(msg)
-                    raise SummarizationError(msg)
+                    msg = "ID column name {} does'nt exist in probe input file!"
+                    msg = msg.format(self.probe_id_col_name)
+                    LOG.error(msg)
+                    raise exceptions.DeSNPSummarizationError(msg)
+
                 first = False
                 continue
-            probe = None
+
+            _probe = None
+
             #  a probe can appear many times in the file due to different
             #  probe set ids, all other columns are the same, so we just
-            #  add the probesetid.
-            probe_id = line[id_col]
-            if probes.has_key(probe_id) and psi_col > -1:
-                probe = probes[probe_id]
-                probe.addProbeSetId(line[psi_col])
-            else:
-                # parseProbesFromLine can result in multiple instances of the same probe...
-                tmp_probes = parse_probe(line, header, probe_id_col_name=self.PROBE_ID_COL_NAME)
-                # ...for summarization this is irrelevant, just keep the first
-                probe = tmp_probes[0]
+            #  add the probesetid
 
-                #  If grouping by gene and no gene start and end position, drop this probe
-                if self.g_group == "gene" and (not probe.start_pos or not probe.end_pos):
-                    #  Drop probes that have no gene start and end, they mess up the matrix
-                    #print "Probe " + probe.id + " has invalid start/end. Skipping..."
+            probe_id = line[id_col]
+
+            if probe_id in probes and psi_col > -1:
+                _probe = probes[probe_id]
+                _probe.addProbeSetId(line[psi_col])
+            else:
+                # parse_prob can result in multiple instances of the same probe
+                tmp_probes = \
+                    probe.parse_probe(line, header,
+                                      probe_id_col_name=self.probe_id_col_name)
+
+                # for summarization this is irrelevant, just keep the first
+                _probe = tmp_probes[0]
+
+                # If grouping by gene and no gene start and end position, than
+                # drop this probe
+                if self.group == "gene" and \
+                        (not _probe.start_pos or not _probe.end_pos):
                     dropped_no_start_end += 1
                     continue
-                probes[probe.id] = probe
-                self.g_probe_ids.append(probe.id)
-        if self.verbose:
-            logging.info("Loaded " + str(len(self.g_probe_ids)) + " probes.")
-            logging.info(str(dropped_no_start_end) + "  probes dropped because no gene start/end provided.")
+
+                probes[_probe.id] = _probe
+                self.probe_ids.append(_probe.id)
+
+        LOG.info("Loaded {} probes.".format(str(len(self.probe_ids))))
+        LOG.info("{} probes dropped.".format(str(dropped_no_start_end)))
+
         return probes
 
-
-    def getSampleNames(self, sample_fd):
+    def get_sample_names(self, sample_fd):
         """
-        Takes the sample file descriptor and returns a list of sample names.  It is assumed the
-        sample names are in the column "sampleid" or "Sample"
+        Takes the sample file descriptor and returns a list of sample names.
+        It is assumed the sample names are in the column "sampleid" or "Sample"
         """
         reader = csv.reader(sample_fd, delimiter="\t")
         samples = []
         first = True
         sample_col = 0
+
         for line in reader:
             if first:
                 try:
-                    sample_col = line.index(self.SAMPLE_COL_NAME)
+                    sample_col = line.index(self.sample_col_name)
                 except ValueError:
                     try:
-                        sample_col = line.index(self.SAMPLE_COL_NAME_ALT)
+                        sample_col = line.index(self.sample_col_name_alt)
                     except ValueError:
                         # Fail, there required column name is missing
-                        msg = "The sample file, must contain a column '"\
-                                      + self.SAMPLE_COL_NAME + "' or '" +\
-                                      self.SAMPLE_COL_NAME_ALT + "'.  This " +\
-                                      "column should contain the names for the " +\
-                                      "sample column headers in the summarized output file."
-                        logging.error(msg)
-                        raise SummarizationError(msg)
+                        msg = """The sample file, must contain a column '{}' or
+                                '{}'. This column should contain the names for 
+                                the sample column headers in the summarized 
+                                output file.""".format(self.sample_col_name,
+                                                       self.sample_col_name_alt)
+                        LOG.error(msg)
+                        raise exceptions.DeSNPSummarizationError(msg)
                 first = False
             else:
                 samples.append(line[sample_col])
-        logging.info("Sample names: ")
-        logging.info(str(samples))
+
+        LOG.debug("Sample names: ")
+        LOG.debug(str(samples))
+
         return samples
 
-    def addProbeData(self, probes, data_fd):
+    def add_probe_data(self, probes, data_fd):
         """
-        Takes the map of probe objects and a file descriptor for the matrix of intensity values
-        and adds these intensity values to the appropriate probe.
+        Takes the map of probe objects and a file descriptor for the matrix of
+        intensity values and adds these intensity values to the appropriate
+        probe.
         """
-        keys = probes.keys()
         reader = csv.reader(data_fd, delimiter="\t")
         first = True
         updated = 0
         lines_read = 0
+
         for line in reader:
-            lines_read +=1
+            lines_read += 1
+
             # skip header
             if first:
                 first = False
                 continue
+
             # skip blank lines
             if len(line) == 0:
                 continue
+
             if len(line) == 1:
-                msg = "Only 1 column in line " + str(lines_read) +\
-                    ".  May be using wrong delimiter."
-                logging.error(msg)
-                logging.error("Line: '" + str(line) + "'")
-                raise SummarizationError(msg)
+                msg = "Only 1 column on line {}.  May be using wrong delimiter."
+                msg = msg.format(lines_read)
+                LOG.error(msg)
+                raise exceptions.DeSNPSummarizationError(msg)
+
             probe_id = line[0]
+
             try:
                 probes[probe_id].setIntensities(line[1:])
                 updated += 1
             except:
                 # If the probe_id is not in the dictionary, we skip the line
-                #logging.debug("Probe " + str(probe_id) + " not probes list")
                 continue
-        if self.verbose:
-            logging.info( "Updated " + str(updated) + " probes with intensity data")
 
-    def getIntensityMatrix(self, probes):
+        LOG.debug("Updated {} probes with intensity data".format(str(updated)))
+
+    def get_intensity_matrix(self, probes):
         """
-        Will take the dictionary of probes and will return a matrix of intensity values
-        probes x samples
+        Will take the dictionary of probes and will return a matrix of
+        intensity values probes x samples
         """
         data = []
         row_length = 0
         row_num = 0
         success = True
-        #  Iterate through probes and make sure each row has the same number of intensities.
-        #  If not, warn the user and exit, we cannot proceed with summarization.
-        for probe_id in self.g_probe_ids:
+
+        # Iterate through probes and make sure each row has the same number of
+        # intensities. If not, warn the user and exit, we cannot proceed with
+        # summarization.
+        for probe_id in self.probe_ids:
             row = probes[probe_id].intensities
+
             if row_length == 0:
                 row_length = len(row)
             elif row_length != len(row):
                 probe = probes[probe_id]
-                message = str(len(row)) + " intensities found " + str(row_length) + " expected for probe: " + \
-                    probe.probe_id + ", " + probe.probeset_id + ", " + probe.sequence
-                logging.error(message)
-                sys.stderr.write(message + "\n")
+                msg = "{} intensities found, {} expected for probe: {}, {}, {}"
+                msg = msg.format(str(len(row)), str(row_length), probe.probe_id,
+                                 probe.probeset_id, probe.sequence)
+                LOG.error(msg)
                 success = False
+
             data.append(probes[probe_id].intensities)
             row_num = row_num + 1
+
         if not success:
             msg = "Cannot proceed with summarization.  Exiting..."
-            logging.error(msg)
-            sys.stderr.write(msg + "\n")
-            raise SummarizationError(msg)
-        x = np.array(data,dtype=np.float)
+            LOG.error(msg)
+            raise exceptions.DeSNPSummarizationError(msg)
+
+        x = np.array(data, dtype=np.float)
         y = np.array(x, dtype=np.int32)
+
         return y
 
-    def groupProbesetsByGene(self, probes, samples):
+    def group_probesets_by_gene(self, probes, samples):
         """
         Takes the Dictionary of probes and the list of samples and groups them
-        by gene.  It uses median polish to give only one value per sample per grouping.
-        The new grouped matrix is returned.
+        by gene.  It uses median polish to give only one value per sample per
+        grouping. The new grouped matrix is returned.
         """
         groupings = None
+
         # Currently we are only grouping by Gene.  If we add another level of
         # Grouping later we should either break out in another function, or
         # add an additional parameter here.
 
         groupings_dict = {}
+
         # Divide the dataset into groups by MGI ID
         no_gene_id = 0
-        for probe_id in self.g_probe_ids:
-            probe = probes[probe_id]
-            gene_id = probe.gene_id
+        for probe_id in self.probe_ids:
+            _probe = probes[probe_id]
+            gene_id = _probe.gene_id
 
-            # TODO:  Figure out why I cared if Gene ID started with MGI:
-            #        Commmenting out for now...
-            if gene_id == None or  gene_id == '':
-            #if gene_id == None or not gene_id.startswith("MGI:"):
-                #print "Not an MGI Gene ID = '" + str(gene_id) + "'"
-                ++no_gene_id
-            #if gene_id == None:
+            if gene_id is None or gene_id == '':
+                no_gene_id += 1
                 continue
-            if groupings_dict.has_key(gene_id):
+
+            if gene_id in groupings_dict:
                 grouping = groupings_dict[gene_id]
-                grouping.addProbe(probe)
+                grouping.addProbe(_probe)
             else:
-                group_values = [probe.gene_id, probe.symbol, probe.name,
-                                probe.chromosome, probe.start_pos, probe.end_pos,
-                                probe.strand]
+                group_values = [_probe.gene_id, _probe.symbol, _probe.name,
+                                _probe.chromosome, _probe.start_pos,
+                                _probe.end_pos, _probe.strand]
                 group_header = ['Gene ID', 'Gene Symbol', 'Gene Name', 'Chr',
                                 'Start', 'End', 'Strand']
-                grouping = ProbeSet(group_values, group_header)
+                grouping = probe.ProbeSet(group_values, group_header)
                 grouping.setSampleNames(samples)
-                grouping.addProbe(probe)
+                grouping.addProbe(_probe)
 
-                groupings_dict[probe.gene_id] = grouping
+                groupings_dict[_probe.gene_id] = grouping
 
-        if self.verbose:
-            logging.info(str(no_gene_id) + " entries without a gene id")
+        LOG.debug("{} entries without a gene id".format(str(no_gene_id)))
+
         groupings = groupings_dict.values()
-        if self.verbose:
-            logging.info("Have " + str(len(groupings)) + " probesets...")
 
-        # For each group, take the set of probe intensity values and
+        LOG.debug("Have {} probesets...".format(str(len(groupings))))
+
+        # for each group, take the set of probe intensity values and
         #    run them through medpolish, then add the "col" results as
         #    the intensity values of the group
         groups_processed = 0
+
         for grouping in groupings:
             matrix = grouping.getProbeNPMatrix()
-            medp_result = mp.adjustedMedpolish(matrix)
+            medp_result = mp.adjusted_medpolish(matrix)
             grouping.setIntensities(medp_result.col)
             grouping.setMedPolishResults(medp_result)
             groups_processed += 1
-            if self.verbose:
-                if operator.mod(groups_processed, 1000) == 0:
-                    logging.info("Calculated median polish on " +
-                        str(groups_processed) +
-                        " groups at " + time.strftime("%H:%M:%S"))
+
+            if operator.mod(groups_processed, 1000) == 0:
+                LOG.debug("Calculated median polish on {} groups at {}".format(
+                    str(groups_processed), time.strftime("%H:%M:%S")))
 
         return groupings
-
-
-def main():
-    """
-    main() is the entry point to the program.
-    Usage of this program can be found in program header and by running:
-      ./desnp -h
-
-      First pass we'll assume that we are processing for only the probes in the
-      "probes.tsv" file.
-
-      Also requiring that the samples.tsv file be present for assigning names for
-      sample columns.
-    """
-    #global PROBE_FILE, SAMPLE_FILE, DATA_FILE, PROBE_ID_COL_NAME, verbose, g_probe_ids, g_group
-    try:
-        optlist, args = getopt.getopt(sys.argv[1:],
-                                      'g:i:ehlo:vz:p:s:d:c:',
-                                      ['group=','idcol=','extra','help','log','out=','verbose','zip=','probe=','sample=','data=','samplecol='])
-    except getopt.GetoptError as exc:
-        # print help info
-        usage()
-        print(exc.msg)
-        sys.exit(1)
-    #
-    #  Parse options from the command line.
-    #     We do this here so that the resulting variables are local to main
-    #
-    g_group = 'gene'
-    verbose = False
-    delim   = '\t'
-    log     = False
-    input_file_name = ""
-    out_file_name   = ""
-    extra_output = False
-    id_col = ""
-    sample_col = ""
-
-    # If zip not provided user MUST provide all three input files
-    zip_used = False
-    # probe file provided on command line (ie not in zip)
-    probe_file = None
-    # data file provided on command line (ie not in zip)
-    data_file = None
-    # sample file provided on command line (ie not in zip)
-    sample_file = None
-    for opt, arg in optlist:
-        if opt in ("-h", "--help"):
-            usage()
-            sys.exit(0)
-        elif opt in ("-v", "--verbose"):
-            verbose = True
-        elif opt in ("-g", "--group"):
-            g_group = arg
-            if g_group not in ('gene', 'probe'):
-                sys.stderr.write("ERROR: invalid grouping for probesets: " +
-                                 g_group + "\n\n")
-                usage()
-                sys.exit(1)
-        elif opt in ("-i", "--idcol"):
-            id_col = arg
-        elif opt in ("-e", "--extra"):
-            extra_output = True
-        elif opt in ("-l", "--log"):
-            log = True
-        elif opt in ("-z", "--zip"):
-            zip_used = True
-            input_file_name = arg
-            delim = '\t'
-        elif opt in ("-o", "--out"):
-            out_file_name = arg
-        elif opt in ("-p", "--probe"):
-            probe_file = arg
-        elif opt in ("-s", "--sample"):
-            sample_file = arg
-        elif opt in ("-d", "--data"):
-            data_file = arg
-        elif opt in ("-c", "--samplecol"):
-            sample_col = arg
-
-    summary = Summary(input_file_name, out_file_name, g_group, verbose,
-                      delim, zip_used, log, extra_output, probe_file,
-                      sample_file, data_file, id_col, sample_col)
-
-    if not summary.initialized:
-        logging.error("Must either provide zip file or you must " +
-                      "explicitly name all input files!\n")
-        usage()
-        sys.exit(1)
-
-    try:
-        summary.process()
-        logging.info("Summarization Completed Successfully")
-        sys.exit(0)
-    except Exception as detail:
-        logging.info("Summarization did not run to completion " + str(detail))
-        sys.exit(1)
-
-
-
-
-if __name__ == "__main__":
-    main()
-
